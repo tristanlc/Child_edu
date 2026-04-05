@@ -4,7 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>积分打卡小程序</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script type="module">
+        import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+        window.supabase = { createClient };
+        document.dispatchEvent(new Event('supabaseReady'));
+    </script>
     <style>
         :root {
             --primary: #6366f1;
@@ -1194,21 +1198,26 @@
         const SUPABASE_ANON_KEY = 'sb_publishable_u21o4qwZMcY6YoL2kRwHPQ_2iPWlBKb';
         const USER_ID = '00000000-0000-0000-0000-000000000001';
 
-        // Initialize Supabase
-        var _supabaseGlobal = typeof supabase !== 'undefined' ? supabase : (typeof window.supabase !== 'undefined' ? window.supabase : null);
-        var supabase = _supabaseGlobal && typeof _supabaseGlobal.createClient === 'function' 
-            ? _supabaseGlobal.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-            : (_supabaseGlobal && typeof _supabaseGlobal === 'function' ? _supabaseGlobal(SUPABASE_URL, SUPABASE_ANON_KEY) : null);
+        // App State - declare first to avoid temporal dead zone
+        var currentUser = null;
+        var userType = 'child';
+        var tasks = [];
+        var records = [];
+        var wishes = [];
+        var rewards = [];
+        var userPoints = 0;
+        var isSyncing = false;
 
-        // App State
-        let currentUser = null;
-        let userType = 'child';
-        let tasks = [];
-        let records = [];
-        let wishes = [];
-        let rewards = [];
-        let userPoints = 0;
-        let isSyncing = false;
+        // Initialize Supabase - wait for DOM
+        var supabase = null;
+        function initSupabase() {
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } else if (typeof supabase === 'function') {
+                supabase = supabase(SUPABASE_URL, SUPABASE_ANON_KEY);
+            }
+            console.log('supabase initialized:', supabase);
+        }
         
         // Parent password (should be stored securely in production)
         const PARENT_PASSWORD = '123456';
@@ -1225,12 +1234,39 @@
             growth: { name: '成长', icon: '🌱', color: '#8b5cf6' }
         };
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', async () => {
+        // Initialize - wait for both DOM ready and supabase loaded
+        var appInitialized = false;
+        async function initApp() {
+            if (appInitialized) return;
+            appInitialized = true;
+            
+            initSupabase();
+            if (!supabase || !supabase.from) {
+                console.error('Supabase not initialized properly');
+                showToast('加载失败，请刷新页面', 'error');
+                return;
+            }
             setupEventListeners();
             await initDatabase();
             loadData();
-        });
+        }
+
+        // Wait for supabaseReady event (from ES module)
+        function waitForSupabase() {
+            document.addEventListener('supabaseReady', () => {
+                setTimeout(initApp, 100);
+            });
+            // Fallback if ES module fails
+            setTimeout(() => {
+                if (!appInitialized) initApp();
+            }, 5000);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', waitForSupabase);
+        } else {
+            waitForSupabase();
+        }
 
         // Setup Event Listeners
         function setupEventListeners() {
