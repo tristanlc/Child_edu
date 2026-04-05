@@ -1248,7 +1248,7 @@
             }
             setupEventListeners();
             await initDatabase();
-            loadData();
+            //loadData();
         }
 
         // Wait for supabaseReady event (from ES module)
@@ -1553,20 +1553,38 @@
                     showToast('请输入你的名字', 'error');
                     return;
                 }
-                // Children can login directly without password
-                currentUser = { name: userName, type: 'child' };
-                document.getElementById('loginPage').style.display = 'none';
-                document.getElementById('childApp').style.display = 'block';
-                document.getElementById('childTitle').textContent = `${userName}的积分`;
-                // Clear local cache and reload from database
-                records = [];
-                tasks = [];
-                wishes = [];
-                rewards = [];
-                userPoints = 0;
-                await loadData();
-                switchChildPage('tasks');
-                showToast(`欢迎 ${userName}！开始今天的任务吧！`, 'success');
+                
+                // Prevent double click - show loading state immediately (synchronous)
+                const loginBtn = document.getElementById('loginBtn');
+                if (loginBtn.disabled) return; // Already processing
+                loginBtn.textContent = '加载中...';
+                loginBtn.disabled = true;
+                
+                // Use setTimeout to allow UI to update before async operations
+                setTimeout(async () => {
+                    // Clear local cache and reload from database
+                    records = [];
+                    tasks = [];
+                    wishes = [];
+                    rewards = [];
+                    userPoints = 0;
+                    
+                    try {
+                        await loadData();
+                    } catch (error) {
+                        console.error('Load data error:', error);
+                    }
+                    
+                    // Then show child app
+                    currentUser = { name: userName, type: 'child' };
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('childApp').style.display = 'block';
+                    document.getElementById('childTitle').textContent = `${userName}的积分`;
+                    loginBtn.textContent = '开始使用';
+                    loginBtn.disabled = false;
+                    switchChildPage('tasks');
+                    showToast(`欢迎 ${userName}！开始今天的任务吧！`, 'success');
+                }, 0);
             } else {
                 // Parents need to enter name AND password
                 if (!userName) {
@@ -1582,12 +1600,37 @@
                     showToast('密码错误，请重试', 'error');
                     return;
                 }
-                // Parent login successful
-                currentUser = { name: userName, type: 'parent' };
-                document.getElementById('loginPage').style.display = 'none';
-                document.getElementById('parentApp').style.display = 'block';
-                showToast(`欢迎家长 ${userName}！`, 'success');
-                switchParentPage('overview');
+                
+                // Prevent double click - show loading state immediately (synchronous)
+                const loginBtn = document.getElementById('loginBtn');
+                if (loginBtn.disabled) return; // Already processing
+                loginBtn.textContent = '加载中...';
+                loginBtn.disabled = true;
+                
+                // Use setTimeout to allow UI to update before async operations
+                setTimeout(async () => {
+                    // Clear cache and reload data
+                    records = [];
+                    tasks = [];
+                    wishes = [];
+                    rewards = [];
+                    userPoints = 0;
+                    
+                    try {
+                        await loadData();
+                    } catch (error) {
+                        console.error('Load data error:', error);
+                    }
+                    
+                    // Parent login successful
+                    currentUser = { name: userName, type: 'parent' };
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('parentApp').style.display = 'block';
+                    loginBtn.textContent = '开始使用';
+                    loginBtn.disabled = false;
+                    showToast(`欢迎家长 ${userName}！`, 'success');
+                    switchParentPage('overview');
+                }, 0);
             }
         }
 
