@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>积分打卡小程序</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <style>
         :root {
             --primary: #6366f1;
@@ -313,6 +313,46 @@
             font-weight: 700;
         }
 
+        .points-progress {
+            margin-top: 12px;
+            font-size: 12px;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 6px;
+            opacity: 0.9;
+        }
+
+        .progress-bar-wrap {
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-bar-daily {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: #22c55e;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+
+        .progress-bar-week {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: rgba(255,255,255,0.8);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+
         /* Task List */
         .task-category {
             margin-bottom: 24px;
@@ -364,8 +404,14 @@
         }
 
         .task-item.completed {
-            opacity: 0.6;
-            background: #f8fafc;
+            opacity: 0.5;
+            background: #e2e8f0;
+            pointer-events: none;
+        }
+
+        .task-item.completed .task-name {
+            text-decoration: line-through;
+            color: #94a3b8;
         }
 
         .task-checkbox {
@@ -384,6 +430,10 @@
             background: var(--success);
             border-color: var(--success);
             color: white;
+        }
+
+        .task-item.completed .task-points {
+            color: #94a3b8;
         }
 
         .task-info {
@@ -846,7 +896,7 @@
                 <input type="text" id="userName" class="login-input" placeholder="请输入你的名字" value="">
                 <div id="parentPasswordField" style="display:none; margin-bottom: 16px;">
                     <input type="password" id="parentPassword" class="login-input" placeholder="请输入家长密码">
-                    <p style="font-size: 12px; color: var(--gray); margin-top: 4px;">* 默认密码: parent123</p>
+                    <p style="font-size: 12px; color: var(--gray); margin-top: 4px;">* 默认密码: xxx</p>
                 </div>
                 <button id="loginBtn" class="login-btn">开始使用</button>
             </div>
@@ -868,6 +918,16 @@
                 <div class="points-display">
                     <div class="points-label">我的积分</div>
                     <div class="points-value" id="pointsValue">0</div>
+                    <div class="points-progress">
+                        <div class="progress-info">
+                            <span>今日 <span id="todayPointsProgress">0</span>/50</span>
+                            <span>本周 <span id="weekPointsProgress">0</span>/280</span>
+                        </div>
+                        <div class="progress-bar-wrap">
+                            <div class="progress-bar-daily" id="dailyProgressBar" style="width: 0%"></div>
+                            <div class="progress-bar-week" id="weeklyProgressBar" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
                 <div id="taskCategories"></div>
             </div>
@@ -960,9 +1020,21 @@
                 <div id="todayTasks"></div>
                 <h2 class="section-title mt-4">快速操作</h2>
                 <div class="flex gap-2 flex-wrap">
-                    <button class="btn btn-primary" onclick="switchToTab('records')">查看记录</button>
+                    <button class="btn btn-primary" onclick="switchToTab('pending')">待确认任务</button>
+                    <button class="btn btn-secondary" onclick="switchToTab('records')">查看记录</button>
                     <button class="btn btn-secondary" onclick="switchToTab('manage')">管理任务</button>
                     <button class="btn btn-secondary" onclick="openAddTaskModal()">+ 添加任务</button>
+                </div>
+            </div>
+
+            <!-- Pending Page -->
+            <div id="pendingPage" class="page">
+                <h2 class="section-title">待确认任务 <span id="pendingCount" style="color: var(--danger);">0</span></h2>
+                <p style="font-size: 12px; color: var(--gray); margin-bottom: 16px;">确认后积分才会发放给孩子</p>
+                <div id="pendingList"></div>
+                <div id="noPendingMsg" class="empty-state" style="display: none;">
+                    <div class="empty-icon">✅</div>
+                    <p class="empty-text">暂无待确认任务</p>
                 </div>
             </div>
 
@@ -997,6 +1069,10 @@
                 <div class="nav-item active" data-page="overview">
                     <span class="icon">🏠</span>
                     <span class="label">概览</span>
+                </div>
+                <div class="nav-item" data-page="pending">
+                    <span class="icon">⏳</span>
+                    <span class="label">待确认</span>
                 </div>
                 <div class="nav-item" data-page="records">
                     <span class="icon">📝</span>
@@ -1115,11 +1191,14 @@
     <script>
         // Supabase Configuration
         const SUPABASE_URL = 'https://rargelemypbnipwqiqea.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhcmdlbWV5cGJuaXB3cWlxZWEiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3NTM1NTQxMywiZXhwIjoyMDkwOTMxNDEzfQ.qOgsXZ5L7Cj4eDwFpVcH2jmRls-kLckhNN4T6WCbLUk';
+        const SUPABASE_ANON_KEY = 'sb_publishable_u21o4qwZMcY6YoL2kRwHPQ_2iPWlBKb';
         const USER_ID = '00000000-0000-0000-0000-000000000001';
 
         // Initialize Supabase
-        var supabase = supabase(SUPABASE_URL, SUPABASE_ANON_KEY);
+        var _supabaseGlobal = typeof supabase !== 'undefined' ? supabase : (typeof window.supabase !== 'undefined' ? window.supabase : null);
+        var supabase = _supabaseGlobal && typeof _supabaseGlobal.createClient === 'function' 
+            ? _supabaseGlobal.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+            : (_supabaseGlobal && typeof _supabaseGlobal === 'function' ? _supabaseGlobal(SUPABASE_URL, SUPABASE_ANON_KEY) : null);
 
         // App State
         let currentUser = null;
@@ -1132,7 +1211,11 @@
         let isSyncing = false;
         
         // Parent password (should be stored securely in production)
-        const PARENT_PASSWORD = 'parent123';
+        const PARENT_PASSWORD = '123456';
+
+        // Point Limits - 基于青春期积分体系V3.0
+        const DAILY_POINT_LIMIT = 50;    // 每日上限约50分
+        const WEEKLY_POINT_LIMIT = 280;  // 每周上限280分（85%完成度）
 
         // Category Config
         const categories = {
@@ -1217,7 +1300,7 @@
                             task_name TEXT NOT NULL,
                             task_category TEXT NOT NULL,
                             points INTEGER NOT NULL,
-                            completed_at TIMESTAMP DEFAULT NOW(),
+                            created_at TIMESTAMP DEFAULT NOW(),
                             user_name TEXT DEFAULT '小明'
                         );
 
@@ -1260,25 +1343,41 @@
             try {
                 // Load tasks
                 const { data: tasksData, error: tasksError } = await supabase
-                    .from('tasks')
+                    .from('daily_tasks')
                     .select('*')
                     .order('created_at', { ascending: false });
 
-                if (!tasksError && tasksData) {
-                    tasks = tasksData;
+                if (!tasksError && tasksData && tasksData.length > 0) {
+                    // Map database fields to code expected fields
+                    tasks = tasksData.map(t => ({
+                        id: t.task_id,
+                        name: t.task_name,
+                        category: t.task_category,
+                        points: t.task_points,
+                        requirement: t.task_requirement || ''
+                    }));
                 } else {
                     // Use default tasks if table is empty
                     tasks = getDefaultTasks();
                     for (const task of tasks) {
-                        await supabase.from('tasks').insert(task);
+                        await supabase.from('daily_tasks').insert({
+                            user_id: USER_ID,
+                            task_date: new Date().toISOString().split('T')[0],
+                            task_id: task.id,
+                            task_name: task.name,
+                            task_category: task.category,
+                            task_points: task.points,
+                            task_requirement: task.requirement || '',
+                            completed: false
+                        });
                     }
                 }
 
                 // Load records
                 const { data: recordsData } = await supabase
-                    .from('records')
+                    .from('point_history')
                     .select('*')
-                    .order('completed_at', { ascending: false });
+                    .order('created_at', { ascending: false });
 
                 if (recordsData) {
                     records = recordsData;
@@ -1294,23 +1393,29 @@
                     wishes = wishesData;
                 }
 
-                // Load rewards
+                // Load rewards (same as wishes)
                 const { data: rewardsData } = await supabase
-                    .from('rewards')
+                    .from('wishes')
                     .select('*')
                     .order('created_at', { ascending: false });
 
-                if (rewardsData) {
+                if (rewardsData && rewardsData.length > 0) {
                     rewards = rewardsData;
                 } else {
                     rewards = getDefaultRewards();
                     for (const reward of rewards) {
-                        await supabase.from('rewards').insert(reward);
+                        await supabase.from('wishes').insert({
+                            ...reward,
+                            user_id: USER_ID,
+                            status: 'pending'
+                        });
                     }
                 }
 
-                // Calculate points
-                userPoints = records.reduce((sum, r) => sum + r.points, 0);
+                // Calculate points (only confirmed records)
+                userPoints = records
+                    .filter(r => r.status === 'confirmed')
+                    .reduce((sum, r) => sum + r.points, 0);
 
                 setSyncStatus('synced');
             } catch (error) {
@@ -1324,33 +1429,61 @@
             updateUI();
         }
 
-        // Get default tasks
+        // Get default tasks - 基于青春期孩子积分体系V3.0
         function getDefaultTasks() {
             return [
-                { id: '1', name: '完成数学作业', category: 'study', points: 15 },
-                { id: '2', name: '背诵古诗一首', category: 'study', points: 10 },
-                { id: '3', name: '阅读30分钟', category: 'study', points: 12 },
-                { id: '4', name: '整理自己的房间', category: 'chores', points: 10 },
-                { id: '5', name: '帮忙洗碗', category: 'chores', points: 8 },
-                { id: '6', name: '帮忙扫地', category: 'chores', points: 5 },
-                { id: '7', name: '跑步30分钟', category: 'sports', points: 15 },
-                { id: '8', name: '跳绳100个', category: 'sports', points: 10 },
-                { id: '9', name: '做早操', category: 'sports', points: 5 },
-                { id: '10', name: '练习写字', category: 'growth', points: 8 },
-                { id: '11', name: '学习新知识', category: 'growth', points: 12 },
-                { id: '12', name: '帮家人做件事', category: 'growth', points: 15 }
+                // 学习类（4项）
+                { id: '1', name: '完成当日作业', category: 'study', points: 8, requirement: '需家长签字确认' },
+                { id: '2', name: '课外阅读30分钟', category: 'study', points: 6, requirement: '需做简要记录' },
+                { id: '3', name: '预习/复习课程', category: 'study', points: 5, requirement: '记录学习内容' },
+                { id: '4', name: '额外练习/学习', category: 'study', points: 8, requirement: '自主设定目标' },
+                // 家务类（4项）
+                { id: '5', name: '收拾自己房间', category: 'chores', points: 5, requirement: '整洁达标' },
+                { id: '6', name: '饭后洗碗', category: 'chores', points: 4, requirement: '清洗干净' },
+                { id: '7', name: '帮忙做饭/准备食材', category: 'chores', points: 8, requirement: '实际参与' },
+                { id: '8', name: '倒垃圾/整理公共区域', category: 'chores', points: 3, requirement: '主动承担' },
+                // 运动类（2项）
+                { id: '9', name: '户外运动30分钟', category: 'sports', points: 6, requirement: '需记录活动' },
+                { id: '10', name: '室内锻炼/拉伸', category: 'sports', points: 4, requirement: '10分钟以上' },
+                // 成长类（3项）- 重点鼓励项
+                { id: '11', name: '情绪管理成功', category: 'growth', points: 10, requirement: '⭐当天无发脾气' },
+                { id: '12', name: '主动与父母沟通', category: 'growth', points: 15, requirement: '⭐⭐最鼓励！' },
+                { id: '13', name: '温和表达不满', category: 'growth', points: 8, requirement: '非暴力沟通' }
             ];
         }
 
-        // Get default rewards
+        // Get default rewards - 游戏兑换标准 (使用数据库字段名)
         function getDefaultRewards() {
             return [
-                { id: '1', name: '多玩30分钟游戏', icon: '🎮', points: 30 },
-                { id: '2', name: '买冰淇淋', icon: '🍦', points: 20 },
-                { id: '3', name: '去公园玩', icon: '🎢', points: 50 },
-                { id: '4', name: '选择晚餐', icon: '🍕', points: 40 },
-                { id: '5', name: '周末多睡1小时', icon: '😴', points: 25 },
-                { id: '6', name: '买新书', icon: '📚', points: 60 }
+                // 游戏类（核心兑换）
+                { wish_type: 'game', wish_type_name: '🎮', content: '1小时游戏 ⭐达标兑换', target_points: 200 },
+                { wish_type: 'game', wish_type_name: '🎮', content: '1.5小时游戏', target_points: 280 },
+                { wish_type: 'game', wish_type_name: '🎮', content: '2小时游戏', target_points: 350 },
+                // 特赦令兑换（每月1次）
+                { wish_type: 'amnesty', wish_type_name: '🏷️', content: '特赦令-1小时游戏', target_points: 100 },
+                { wish_type: 'amnesty', wish_type_name: '🏷️', content: '特赦令-2小时游戏', target_points: 200 },
+                { wish_type: 'amnesty', wish_type_name: '🏷️', content: '特赦令-3小时游戏', target_points: 300 },
+                // 进阶兑换
+                { wish_type: 'game', wish_type_name: '🎮', content: '游戏内购（小额）', target_points: 500 },
+                { wish_type: 'game', wish_type_name: '🎮', content: '游戏内购（大额）', target_points: 800 },
+                { wish_type: 'game', wish_type_name: '🎮', content: '游戏外设/周边', target_points: 1000 },
+                // 美食类
+                { wish_type: 'food', wish_type_name: '🍦', content: '零食/奶茶', target_points: 40 },
+                { wish_type: 'food', wish_type_name: '🍔', content: '外卖/快餐', target_points: 70 },
+                { wish_type: 'food', wish_type_name: '🍜', content: '餐厅聚餐', target_points: 150 },
+                // 活动类
+                { wish_type: 'activity', wish_type_name: '📚', content: '逛公园/图书馆', target_points: 65 },
+                { wish_type: 'activity', wish_type_name: '🎬', content: '看电影', target_points: 125 },
+                { wish_type: 'activity', wish_type_name: '🎢', content: '游乐场/游乐设施', target_points: 325 },
+                // 物品类
+                { wish_type: 'item', wish_type_name: '🎁', content: '小件物品（50元内）', target_points: 175 },
+                { wish_type: 'item', wish_type_name: '🎁', content: '中件物品（100元内）', target_points: 425 },
+                { wish_type: 'item', wish_type_name: '🎁', content: '大件物品（200元内）', target_points: 700 },
+                // 特权类
+                { wish_type: 'privilege', wish_type_name: '😴', content: '周末多睡1小时', target_points: 30 },
+                { wish_type: 'privilege', wish_type_name: '⭐', content: '自己决定周末安排', target_points: 50 },
+                { wish_type: 'privilege', wish_type_name: '🎥', content: '家庭电影夜', target_points: 45 },
+                { wish_type: 'privilege', wish_type_name: '✨', content: '免做一次家务', target_points: 25 }
             ];
         }
 
@@ -1389,6 +1522,13 @@
                 document.getElementById('loginPage').style.display = 'none';
                 document.getElementById('childApp').style.display = 'block';
                 document.getElementById('childTitle').textContent = `${userName}的积分`;
+                // Clear local cache and reload from database
+                records = [];
+                tasks = [];
+                wishes = [];
+                rewards = [];
+                userPoints = 0;
+                await loadData();
                 switchChildPage('tasks');
                 showToast(`欢迎 ${userName}！开始今天的任务吧！`, 'success');
             } else {
@@ -1437,11 +1577,26 @@
             document.querySelectorAll('#parentNav .nav-item').forEach(n => n.classList.remove('active'));
             document.getElementById(page + 'Page').classList.add('active');
             document.querySelector(`#parentNav .nav-item[data-page="${page}"]`).classList.add('active');
+
+            // Refresh data when switching to pending page
+            if (page === 'pending') {
+                loadData();
+            }
         }
 
         // Switch to tab (for parent)
         function switchToTab(tab) {
             switchParentPage(tab);
+        }
+
+        // Helper to parse record description
+        function parseRecordDescription(desc) {
+            try {
+                const parsed = JSON.parse(desc);
+                return { taskId: parsed.taskId, taskName: parsed.taskName, taskCategory: parsed.taskCategory };
+            } catch {
+                return { taskId: null, taskName: desc, taskCategory: 'other' };
+            }
         }
 
         // Update UI
@@ -1455,6 +1610,27 @@
             // Update points
             document.getElementById('pointsValue').textContent = userPoints;
             document.getElementById('exchangePoints').textContent = userPoints;
+
+            // Update daily and weekly progress (only confirmed records)
+            const today = new Date().toDateString();
+            const todayPoints = records
+                .filter(r => new Date(r.created_at).toDateString() === today && r.status === 'confirmed')
+                .reduce((sum, r) => sum + r.points, 0);
+
+            const now = new Date();
+            const dayOfWeek = now.getDay();
+            const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - mondayOffset);
+            weekStart.setHours(0, 0, 0, 0);
+            const weekPoints = records
+                .filter(r => new Date(r.created_at) >= weekStart && r.status === 'confirmed')
+                .reduce((sum, r) => sum + r.points, 0);
+
+            document.getElementById('todayPointsProgress').textContent = todayPoints;
+            document.getElementById('weekPointsProgress').textContent = weekPoints;
+            document.getElementById('dailyProgressBar').style.width = Math.min(100, (todayPoints / DAILY_POINT_LIMIT) * 100) + '%';
+            document.getElementById('weeklyProgressBar').style.width = Math.min(100, (weekPoints / WEEKLY_POINT_LIMIT) * 100) + '%';
 
             // Render tasks
             renderTasks();
@@ -1476,9 +1652,12 @@
 
             const today = new Date().toDateString();
             const todayRecords = records.filter(r =>
-                new Date(r.completed_at).toDateString() === today
+                new Date(r.created_at).toDateString() === today
             );
-            const completedTaskIds = todayRecords.map(r => r.task_id);
+            const completedTaskIds = todayRecords.map(r => {
+                const parsed = parseRecordDescription(r.description);
+                return parsed.taskId;
+            });
 
             for (const [catKey, cat] of Object.entries(categories)) {
                 const catTasks = tasks.filter(t => t.category === catKey);
@@ -1527,44 +1706,88 @@
 
         // Complete task
         async function completeTask(task) {
+            // Check if already completed or pending today (confirmed or pending)
+            const today = new Date().toDateString();
+            const todayCompleted = records.some(r => {
+                if (new Date(r.created_at).toDateString() !== today) return false;
+                if (r.status === 'rejected') return false; // rejected tasks can be re-done
+                try {
+                    const parsed = JSON.parse(r.description);
+                    return parsed.taskId === task.id;
+                } catch {
+                    return false;
+                }
+            });
+
+            if (todayCompleted) {
+                showToast('今日已提交此任务，等待确认中', 'error');
+                return;
+            }
+
+            // Calculate today's points (only confirmed)
+            const todayPoints = records
+                .filter(r => new Date(r.created_at).toDateString() === today && r.status === 'confirmed')
+                .reduce((sum, r) => sum + r.points, 0);
+
+            // Calculate this week's points (Monday to Sunday, only confirmed)
+            const now = new Date();
+            const dayOfWeek = now.getDay();
+            const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - mondayOffset);
+            weekStart.setHours(0, 0, 0, 0);
+            
+            const weekPoints = records
+                .filter(r => new Date(r.created_at) >= weekStart && r.status === 'confirmed')
+                .reduce((sum, r) => sum + r.points, 0);
+
+            // Check daily limit
+            if (todayPoints + task.points > DAILY_POINT_LIMIT) {
+                showToast(`今日积分已达上限(${DAILY_POINT_LIMIT}分)，明天再来吧！`, 'error');
+                return;
+            }
+
+            // Check weekly limit
+            if (weekPoints + task.points > WEEKLY_POINT_LIMIT) {
+                showToast(`本周积分已达上限(${WEEKLY_POINT_LIMIT}分)，下周再努力！`, 'error');
+                return;
+            }
+
             setSyncStatus('syncing');
 
             const newRecord = {
-                task_id: task.id,
-                task_name: task.name,
-                task_category: task.category,
+                user_id: USER_ID,
+                history_type: 'add',
                 points: task.points,
-                user_name: currentUser?.name || '小明'
+                description: JSON.stringify({ taskId: task.id, taskName: task.name, taskCategory: task.category }),
+                status: 'pending'
             };
 
             try {
                 const { data, error } = await supabase
-                    .from('records')
+                    .from('point_history')
                     .insert(newRecord)
                     .select()
                     .single();
 
                 if (!error && data) {
                     records.unshift(data);
-                    userPoints += task.points;
-                    showToast(`完成 ${task.name}！+${task.points}积分`, 'success');
+                    showToast(`已提交 "${task.name}"，等待家长确认...`, 'success');
                     updateUI();
                 } else {
-                    // Offline fallback
+                    // Offline fallback (still pending)
                     newRecord.id = Date.now().toString();
-                    newRecord.completed_at = new Date().toISOString();
+                    newRecord.created_at = new Date().toISOString();
                     records.unshift(newRecord);
-                    userPoints += task.points;
-                    showToast(`完成 ${task.name}！+${task.points}积分 (本地)`, 'success');
+                    showToast(`已提交 "${task.name}"，等待确认... (本地)`, 'success');
                     updateUI();
                 }
             } catch (error) {
-                // Offline fallback
+                // Offline fallback (still pending)
                 newRecord.id = Date.now().toString();
-                newRecord.completed_at = new Date().toISOString();
+                newRecord.created_at = new Date().toISOString();
                 records.unshift(newRecord);
-                userPoints += task.points;
-                showToast(`完成 ${task.name}！+${task.points}积分 (本地)`, 'success');
+                showToast(`已提交 "${task.name}"，等待确认... (本地)`, 'success');
                 updateUI();
             }
 
@@ -1576,16 +1799,16 @@
             const container = document.getElementById('exchangeList');
             container.innerHTML = rewards.map(reward => `
                 <div class="wish-item">
-                    <div class="wish-icon">${reward.icon}</div>
-                    <div class="wish-name">${reward.name}</div>
-                    <div class="wish-points">${reward.points}积分</div>
+                    <div class="wish-icon">${reward.wish_type_name}</div>
+                    <div class="wish-name">${reward.content}</div>
+                    <div class="wish-points">${reward.target_points}积分</div>
                     <div class="wish-progress">
-                        <div class="wish-progress-bar" style="width: ${Math.min(100, (userPoints / reward.points) * 100)}%"></div>
+                        <div class="wish-progress-bar" style="width: ${Math.min(100, (userPoints / reward.target_points) * 100)}%"></div>
                     </div>
-                    <button class="btn btn-sm ${userPoints >= reward.points ? 'btn-success' : 'btn-secondary'} mt-2"
-                            ${userPoints < reward.points ? 'disabled' : ''}
+                    <button class="btn btn-sm ${userPoints >= reward.target_points ? 'btn-success' : 'btn-secondary'} mt-2"
+                            ${userPoints < reward.target_points ? 'disabled' : ''}
                             onclick="exchangeReward('${reward.id}')">
-                        ${userPoints >= reward.points ? '兑换' : '积分不足'}
+                        ${userPoints >= reward.target_points ? '兑换' : '积分不足'}
                     </button>
                 </div>
             `).join('');
@@ -1594,14 +1817,14 @@
         // Exchange reward
         async function exchangeReward(rewardId) {
             const reward = rewards.find(r => r.id === rewardId);
-            if (!reward || userPoints < reward.points) {
+            if (!reward || userPoints < reward.target_points) {
                 showToast('积分不足', 'error');
                 return;
             }
 
-            if (confirm(`确定要用${reward.points}积分兑换"${reward.name}"吗？`)) {
-                userPoints -= reward.points;
-                showToast(`恭喜！已兑换 "${reward.name}"`, 'success');
+            if (confirm(`确定要用${reward.target_points}积分兑换"${reward.content}"吗？`)) {
+                userPoints -= reward.target_points;
+                showToast(`恭喜！已兑换 "${reward.content}"`, 'success');
                 updateUI();
             }
         }
@@ -1623,18 +1846,18 @@
             container.innerHTML = wishes.map(wish => `
                 <div class="card">
                     <div class="flex items-center gap-2">
-                        <span style="font-size: 24px;">${wish.icon}</span>
+                        <span style="font-size: 24px;">${wish.wish_type_name}</span>
                         <div class="flex-1">
-                            <div class="card-title">${wish.name}</div>
-                            <div class="task-points">需要 ${wish.points} 积分</div>
+                            <div class="card-title">${wish.content}</div>
+                            <div class="task-points">需要 ${wish.target_points} 积分</div>
                         </div>
                         <button class="btn btn-sm btn-danger" onclick="deleteWish('${wish.id}')">删除</button>
                     </div>
                     <div class="wish-progress mt-2">
-                        <div class="wish-progress-bar" style="width: ${Math.min(100, (userPoints / wish.points) * 100)}%"></div>
+                        <div class="wish-progress-bar" style="width: ${Math.min(100, (userPoints / wish.target_points) * 100)}%"></div>
                     </div>
                     <div class="text-right mt-2" style="font-size: 12px; color: var(--gray);">
-                        ${userPoints} / ${wish.points} 积分
+                        ${userPoints} / ${wish.target_points} 积分
                     </div>
                 </div>
             `).join('');
@@ -1644,14 +1867,14 @@
         function renderStats() {
             const now = new Date();
             const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            const weekRecords = records.filter(r => new Date(r.completed_at) >= weekAgo);
+            const weekRecords = records.filter(r => new Date(r.created_at) >= weekAgo);
 
             // Calculate streak
             let streak = 0;
             let checkDate = new Date();
             while (true) {
                 const dayRecords = records.filter(r =>
-                    new Date(r.completed_at).toDateString() === checkDate.toDateString()
+                    new Date(r.created_at).toDateString() === checkDate.toDateString()
                 );
                 if (dayRecords.length > 0) {
                     streak++;
@@ -1673,7 +1896,7 @@
             for (let i = 6; i >= 0; i--) {
                 const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
                 const dayRecords = records.filter(r =>
-                    new Date(r.completed_at).toDateString() === date.toDateString()
+                    new Date(r.created_at).toDateString() === date.toDateString()
                 );
                 chartData.push({
                     day: weekDays[date.getDay()],
@@ -1692,31 +1915,36 @@
 
         // Update parent UI
         function updateParentUI() {
-            // Today's points
+            // Today's points (only confirmed)
             const today = new Date().toDateString();
             const todayPoints = records
-                .filter(r => new Date(r.completed_at).toDateString() === today)
+                .filter(r => new Date(r.created_at).toDateString() === today && r.status === 'confirmed')
                 .reduce((sum, r) => sum + r.points, 0);
             document.getElementById('parentTodayPoints').textContent = todayPoints;
 
-            // Today's tasks
+            // Today's confirmed tasks
             const todayRecords = records.filter(r =>
-                new Date(r.completed_at).toDateString() === today
+                new Date(r.created_at).toDateString() === today && r.status === 'confirmed'
             );
 
             document.getElementById('todayTasks').innerHTML = todayRecords.length > 0
-                ? todayRecords.map(r => `
+                ? todayRecords.map(r => {
+                    const parsed = parseRecordDescription(r.description);
+                    return `
                     <div class="card">
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <span>${categories[r.task_category]?.icon || '📋'}</span>
-                                <span>${r.task_name}</span>
+                                <span>${categories[parsed.taskCategory]?.icon || '📋'}</span>
+                                <span>${parsed.taskName}</span>
                             </div>
                             <span style="color: var(--success);">+${r.points}</span>
                         </div>
                     </div>
-                `).join('')
-                : '<div class="empty-state"><div class="empty-icon">📋</div><p class="empty-text">今天还没有完成任务</p></div>';
+                `}).join('')
+                : '<div class="empty-state"><div class="empty-icon">📋</div><p class="empty-text">今天还没有确认的任务</p></div>';
+
+            // Render pending tasks
+            renderPendingTasks();
 
             // Records list
             renderRecords('all');
@@ -1743,11 +1971,11 @@
                 <div class="card">
                     <div class="flex items-center justify-between">
                         <div>
-                            <span style="margin-right: 8px; font-size: 20px;">${reward.icon}</span>
-                            <strong>${reward.name}</strong>
+                            <span style="margin-right: 8px; font-size: 20px;">${reward.wish_type_name}</span>
+                            <strong>${reward.content}</strong>
                         </div>
                         <div class="flex items-center gap-2">
-                            <span style="color: var(--secondary);">${reward.points}积分</span>
+                            <span style="color: var(--secondary);">${reward.target_points}积分</span>
                             <button class="btn btn-sm btn-danger" onclick="deleteReward('${reward.id}')">删除</button>
                         </div>
                     </div>
@@ -1755,29 +1983,127 @@
             `).join('');
         }
 
-        // Render records
+        // Render records (only confirmed records)
         function renderRecords(filter) {
+            const confirmedRecords = records.filter(r => r.status === 'confirmed');
             const filtered = filter === 'all'
-                ? records
-                : records.filter(r => r.task_category === filter);
+                ? confirmedRecords
+                : confirmedRecords.filter(r => {
+                    const parsed = parseRecordDescription(r.description);
+                    return parsed.taskCategory === filter;
+                });
 
             document.getElementById('recordsList').innerHTML = filtered.length > 0
-                ? filtered.map(r => `
+                ? filtered.map(r => {
+                    const parsed = parseRecordDescription(r.description);
+                    return `
                     <div class="record-item">
                         <div class="record-info">
-                            <span class="record-task">${categories[r.task_category]?.icon} ${r.task_name}</span>
-                            <span class="record-meta">${new Date(r.completed_at).toLocaleDateString('zh-CN')}</span>
+                            <span class="record-task">${categories[parsed.taskCategory]?.icon} ${parsed.taskName}</span>
+                            <span class="record-meta">${new Date(r.created_at).toLocaleDateString('zh-CN')}</span>
                         </div>
                         <span class="record-points">+${r.points}</span>
                     </div>
-                `).join('')
-                : '<div class="empty-state"><div class="empty-icon">📝</div><p class="empty-text">暂无记录</p></div>';
+                `}).join('')
+                : '<div class="empty-state"><div class="empty-icon">📝</div><p class="empty-text">暂无已确认记录</p></div>';
         }
 
         // Filter records
         function filterRecords(filter) {
             renderRecords(filter);
         }
+
+        // Render pending tasks for parent confirmation
+        function renderPendingTasks() {
+            const pendingRecords = records.filter(r => r.status === 'pending');
+            const pendingList = document.getElementById('pendingList');
+            const noPendingMsg = document.getElementById('noPendingMsg');
+            const pendingCount = document.getElementById('pendingCount');
+
+            pendingCount.textContent = pendingRecords.length;
+
+            if (pendingRecords.length === 0) {
+                pendingList.innerHTML = '';
+                noPendingMsg.style.display = 'block';
+                return;
+            }
+
+            noPendingMsg.style.display = 'none';
+            pendingList.innerHTML = pendingRecords.map(r => {
+                const parsed = parseRecordDescription(r.description);
+                const recordDate = new Date(r.created_at);
+                const isToday = recordDate.toDateString() === new Date().toDateString();
+                return `
+                <div class="card" style="margin-bottom: 12px;">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span style="font-size: 24px;">${categories[parsed.taskCategory]?.icon || '📋'}</span>
+                            <div>
+                                <div style="font-weight: 600;">${parsed.taskName}</div>
+                                <div style="font-size: 12px; color: var(--gray);">
+                                    ${isToday ? '今日' : recordDate.toLocaleDateString('zh-CN')} · ${r.points}积分
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-sm btn-success" onclick="confirmRecord('${r.id}')">✓ 确认</button>
+                            <button class="btn btn-sm btn-danger" onclick="rejectRecord('${r.id}')">✗ 拒绝</button>
+                        </div>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        // Confirm a pending record
+        async function confirmRecord(recordId) {
+            try {
+                const record = records.find(r => r.id === recordId);
+                if (!record) return;
+
+                const { error } = await supabase
+                    .from('point_history')
+                    .update({ status: 'confirmed' })
+                    .eq('id', recordId);
+
+                if (!error) {
+                    const index = records.findIndex(r => r.id === recordId);
+                    if (index !== -1) {
+                        records[index].status = 'confirmed';
+                    }
+                    userPoints += record.points;
+                    showToast(`已确认，+${record.points}积分发放成功！`, 'success');
+                    updateUI();
+                } else {
+                    showToast('确认失败: ' + error.message, 'error');
+                }
+            } catch (error) {
+                showToast('确认失败', 'error');
+            }
+        }
+
+        // Reject a pending record (delete it so child can resubmit)
+        async function rejectRecord(recordId) {
+            if (!confirm('确定要拒绝此任务吗？孩子将可以重新提交。')) return;
+
+            try {
+                const { error } = await supabase
+                    .from('point_history')
+                    .delete()
+                    .eq('id', recordId);
+
+                if (!error) {
+                    records = records.filter(r => r.id !== recordId);
+                    showToast('已拒绝，孩子可重新提交', 'success');
+                    updateUI();
+                } else {
+                    showToast('拒绝失败: ' + error.message, 'error');
+                }
+            } catch (error) {
+                showToast('拒绝失败', 'error');
+            }
+        }
+
+        // Render records
 
         // Modal functions
         function openModal(id) {
@@ -1821,28 +2147,57 @@
             }
 
             if (editId) {
-                // Update existing task
-                const index = tasks.findIndex(t => t.id === editId);
-                if (index !== -1) {
-                    tasks[index] = { ...tasks[index], name, category, points };
-                    await supabase.from('tasks').update({ name, category, points }).eq('id', editId);
-                    showToast('任务已更新', 'success');
+                // Update existing task in database
+                const updateData = {
+                    task_name: name,
+                    task_category: category,
+                    task_points: points
+                };
+                try {
+                    const { error } = await supabase
+                        .from('daily_tasks')
+                        .update(updateData)
+                        .eq('task_id', editId);
+                    
+                    if (!error) {
+                        const index = tasks.findIndex(t => t.id === editId);
+                        if (index !== -1) {
+                            tasks[index] = { ...tasks[index], name, category, points };
+                        }
+                        showToast('任务已更新', 'success');
+                    } else {
+                        showToast('更新失败: ' + error.message, 'error');
+                    }
+                } catch (error) {
+                    showToast('更新失败', 'error');
                 }
             } else {
-                // Add new task
-                const newTask = { name, category, points };
+                // Add new task to database
+                const newTask = {
+                    user_id: USER_ID,
+                    task_date: new Date().toISOString().split('T')[0],
+                    task_id: Date.now().toString(),
+                    task_name: name,
+                    task_category: category,
+                    task_points: points,
+                    completed: false
+                };
                 try {
-                    const { data } = await supabase.from('tasks').insert(newTask).select().single();
-                    if (data) {
-                        tasks.unshift(data);
+                    const { data, error } = await supabase.from('daily_tasks').insert(newTask).select().single();
+                    if (data && !error) {
+                        tasks.unshift({
+                            id: data.task_id,
+                            name: data.task_name,
+                            category: data.task_category,
+                            points: data.task_points
+                        });
                     } else {
                         newTask.id = Date.now().toString();
-                        tasks.unshift(newTask);
+                        tasks.unshift({ id: newTask.task_id, name, category, points });
                     }
                     showToast('任务已添加', 'success');
                 } catch (error) {
-                    newTask.id = Date.now().toString();
-                    tasks.unshift(newTask);
+                    tasks.unshift({ id: newTask.task_id, name, category, points });
                     showToast('任务已添加 (本地)', 'success');
                 }
             }
@@ -1855,7 +2210,7 @@
             if (!confirm('确定要删除这个任务吗？')) return;
 
             tasks = tasks.filter(t => t.id !== taskId);
-            await supabase.from('tasks').delete().eq('id', taskId);
+            await supabase.from('daily_tasks').delete().eq('task_id', taskId);
             showToast('任务已删除', 'success');
             updateUI();
         }
@@ -1868,16 +2223,17 @@
         }
 
         async function saveWish() {
-            const name = document.getElementById('wishName').value.trim();
-            const points = parseInt(document.getElementById('wishPoints').value) || 50;
-            const icon = document.getElementById('wishIcon').value;
+            const content = document.getElementById('wishName').value.trim();
+            const target_points = parseInt(document.getElementById('wishPoints').value) || 50;
+            const wish_type_name = document.getElementById('wishIcon').value;
+            const wish_type = 'item';
 
-            if (!name) {
+            if (!content) {
                 showToast('请输入愿望名称', 'error');
                 return;
             }
 
-            const newWish = { name, points, icon };
+            const newWish = { wish_type, wish_type_name, content, target_points };
             try {
                 const { data } = await supabase.from('wishes').insert(newWish).select().single();
                 if (data) {
@@ -1913,18 +2269,19 @@
         }
 
         async function saveReward() {
-            const name = document.getElementById('rewardName').value.trim();
-            const points = parseInt(document.getElementById('rewardPoints').value) || 50;
-            const icon = document.getElementById('rewardIcon').value;
+            const content = document.getElementById('rewardName').value.trim();
+            const target_points = parseInt(document.getElementById('rewardPoints').value) || 50;
+            const wish_type_name = document.getElementById('rewardIcon').value;
+            const wish_type = 'item';
 
-            if (!name) {
+            if (!content) {
                 showToast('请输入奖励名称', 'error');
                 return;
             }
 
-            const newReward = { name, points, icon };
+            const newReward = { wish_type, wish_type_name, content, target_points };
             try {
-                const { data } = await supabase.from('rewards').insert(newReward).select().single();
+                const { data } = await supabase.from('wishes').insert(newReward).select().single();
                 if (data) {
                     rewards.unshift(data);
                 } else {
@@ -1945,7 +2302,7 @@
             if (!confirm('确定要删除这个奖励吗？')) return;
 
             rewards = rewards.filter(r => r.id !== rewardId);
-            await supabase.from('rewards').delete().eq('id', rewardId);
+            await supabase.from('wishes').delete().eq('id', rewardId);
             showToast('奖励已删除', 'success');
             updateUI();
         }
