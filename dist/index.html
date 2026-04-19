@@ -2394,6 +2394,34 @@
             }
 
             if (confirm(`确定要用${reward.target_points}积分兑换"${reward.content}"吗？`)) {
+                const deductionRecord = {
+                    user_id: USER_ID,
+                    history_type: 'exchange',
+                    points: -reward.target_points,
+                    description: JSON.stringify({ rewardId: reward.id, rewardName: reward.content, rewardType: reward.wish_type }),
+                    status: 'confirmed'
+                };
+
+                try {
+                    const { data, error } = await supabase
+                        .from('point_history')
+                        .insert(deductionRecord)
+                        .select()
+                        .single();
+
+                    if (!error && data) {
+                        records.unshift(data);
+                    } else {
+                        deductionRecord.id = Date.now().toString();
+                        deductionRecord.created_at = new Date().toISOString();
+                        records.unshift(deductionRecord);
+                    }
+                } catch (error) {
+                    deductionRecord.id = Date.now().toString();
+                    deductionRecord.created_at = new Date().toISOString();
+                    records.unshift(deductionRecord);
+                }
+
                 userPoints -= reward.target_points;
                 showToast(`恭喜！已兑换 "${reward.content}"`, 'success');
                 updateUI();
