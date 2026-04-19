@@ -1533,64 +1533,34 @@
             updateUI();
         }
         
-        // Daily check-in bonus - auto granted, no parent confirmation needed
-        async function processDailyCheckIn() {
-            if (userType !== 'child') return false;
-            if (todayCheckInDone) return false;
+        // Check if amnesty has been used this month
+        function isAmnestyUsedThisMonth() {
+            const now = new Date();
+            const currentMonth = now.getUTCMonth();
+            const currentYear = now.getUTCFullYear();
             
-            const today = getBeijingDateString();
-            
-            // Check if already checked in today by looking for check-in record
-            const alreadyCheckedIn = records.some(r => {
+            return records.some(r => {
                 if (r.status !== 'confirmed') return false;
+                if (r.history_type !== 'exchange') return false;
                 try {
                     const desc = JSON.parse(r.description);
-                    return desc.taskId === 'daily_checkin' && desc.checkInDate === today;
+                    if (desc.rewardType !== 'amnesty') return false;
+                    const recordDate = new Date(r.created_at);
+                    return recordDate.getUTCMonth() === currentMonth && recordDate.getUTCFullYear() === currentYear;
                 } catch {
                     return false;
                 }
             });
-            
-            if (alreadyCheckedIn) {
-                todayCheckInDone = true;
-                return false;
-            }
-            
-            // Grant check-in bonus
-            userPoints += CHECK_IN_POINTS;
-            todayCheckInDone = true;
-            
-            const checkInRecord = {
-                user_id: USER_ID,
-                history_type: 'checkin',
-                points: CHECK_IN_POINTS,
-                description: JSON.stringify({ taskId: 'daily_checkin', taskName: '每日签到', taskCategory: 'growth', checkInDate: today }),
-                status: 'confirmed'
-            };
-            
-            // Insert into database
-            try {
-                const { data, error } = await supabase
-                    .from('point_history')
-                    .insert(checkInRecord)
-                    .select()
-                    .single();
-                
-                if (!error && data) {
-                    records.unshift(data);
-                } else {
-                    checkInRecord.id = Date.now().toString();
-                    checkInRecord.created_at = new Date().toISOString();
-                    records.unshift(checkInRecord);
+        }
+        
+        // Check if a specific reward can be exchanged
+        function canExchangeReward(reward) {
+            if (reward.wish_type === 'amnesty') {
+                if (isAmnestyUsedThisMonth()) {
+                    return false;
                 }
-            } catch (error) {
-                checkInRecord.id = Date.now().toString();
-                checkInRecord.created_at = new Date().toISOString();
-                records.unshift(checkInRecord);
             }
-            
-            console.log('Daily check-in bonus granted:', CHECK_IN_POINTS, 'points');
-            return true;
+            return userPoints >= reward.target_points;
         }
         
         // Render week calendar
@@ -2368,7 +2338,27 @@
         // Render exchange list
         function renderExchangeList() {
             const container = document.getElementById('exchangeList');
-            container.innerHTML = rewards.map(reward => `
+            const amnestyUsed = isAmnestyUsedThisMonth();
+            
+            container.innerHTML = rewards.map(reward => {
+                const canExchange = canExchangeReward(reward);
+                let buttonText = '兑换';
+                let buttonClass = 'btn-success';
+                let disabled = '';
+                
+                if (reward.wish_type === 'amnesty') {
+                    if (amnestyUsed) {
+                        buttonText = '本月已使用';
+                        buttonClass = 'btn-secondary';
+                        disabled = 'disabled';
+                    }
+                } else if (!canExchange) {
+                    buttonText = '积分不足';
+                    buttonClass = 'btn-secondary';
+                    disabled = 'disabled';
+                }
+                
+                return `
                 <div class="wish-item">
                     <div class="wish-icon">${reward.wish_type_name}</div>
                     <div class="wish-name">${reward.content}</div>
@@ -2376,19 +2366,32 @@
                     <div class="wish-progress">
                         <div class="wish-progress-bar" style="width: ${Math.min(100, (userPoints / reward.target_points) * 100)}%"></div>
                     </div>
-                    <button class="btn btn-sm ${userPoints >= reward.target_points ? 'btn-success' : 'btn-secondary'} mt-2"
-                            ${userPoints < reward.target_points ? 'disabled' : ''}
+                    <button class="btn btn-sm ${buttonClass} mt-2"
+                            ${disabled}
                             onclick="exchangeReward('${reward.id}')">
-                        ${userPoints >= reward.target_points ? '兑换' : '积分不足'}
+                        ${buttonText}
                     </button>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // Exchange reward
         async function exchangeReward(rewardId) {
             const reward = rewards.find(r => r.id === rewardId);
-            if (!reward || userPoints < reward.target_points) {
+            if (!reward) {
+                showToast('奖励不存在', 'error');
+                return;
+            }
+            
+            // Check amnesty usage
+            if (reward.wish_type === 'amnesty') {
+                if (isAmnestyUsedThisMonth()) {
+                    showToast('本月特赦令已使用，下月1号可重新使用', 'error');
+                    return;
+                }
+            }
+            
+            if (userPoints < reward.target_points) {
                 showToast('积分不足', 'error');
                 return;
             }
