@@ -1563,6 +1563,66 @@
             return userPoints >= reward.target_points;
         }
         
+        // Daily check-in bonus - auto granted, no parent confirmation needed
+        async function processDailyCheckIn() {
+            if (userType !== 'child') return false;
+            if (todayCheckInDone) return false;
+
+            const today = getBeijingDateString();
+
+            // Check if already checked in today by looking for check-in record
+            const alreadyCheckedIn = records.some(r => {
+                if (r.status !== 'confirmed') return false;
+                try {
+                    const desc = JSON.parse(r.description);
+                    return desc.taskId === 'daily_checkin' && desc.checkInDate === today;
+                } catch {
+                    return false;
+                }
+            });
+
+            if (alreadyCheckedIn) {
+                todayCheckInDone = true;
+                return false;
+            }
+
+            // Grant check-in bonus
+            userPoints += CHECK_IN_POINTS;
+            todayCheckInDone = true;
+
+            const checkInRecord = {
+                user_id: USER_ID,
+                history_type: 'checkin',
+                points: CHECK_IN_POINTS,
+                description: JSON.stringify({ taskId: 'daily_checkin', taskName: '每日签到', taskCategory: 'growth', checkInDate: today }),
+                status: 'confirmed'
+            };
+
+            // Insert into database
+            try {
+                const { data, error } = await supabase
+                    .from('point_history')
+                    .insert(checkInRecord)
+                    .select()
+                    .single();
+
+                if (!error && data) {
+                    records.unshift(data);
+                } else {
+                    checkInRecord.id = Date.now().toString();
+                    checkInRecord.created_at = new Date().toISOString();
+                    records.unshift(checkInRecord);
+                }
+            } catch (error) {
+                checkInRecord.id = Date.now().toString();
+                checkInRecord.created_at = new Date().toISOString();
+                records.unshift(checkInRecord);
+            }
+
+            console.log('Daily check-in bonus granted:', CHECK_IN_POINTS, 'points');
+            return true;
+        }
+        
         // Render week calendar
         function renderWeekCalendar() {
             const container = document.getElementById('weekCalendar');
